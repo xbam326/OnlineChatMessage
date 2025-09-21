@@ -19,7 +19,7 @@ udp_sock.bind((server_address, udp_server_port))
 print("starting up on tcp port {}".format(tcp_server_port))
 print("starting up on udp port {}".format(udp_server_port))
 
-target_list = []
+chatrooms = []
 
 
 def main():
@@ -79,6 +79,7 @@ def make_chatroom():
     )
     host = utils.User(username, client_address)
     chatroom = ChatRoom(roomname, host)
+    chatrooms.append(chatroom)
     print(
         f"Chat room '{chatroom.roomname}' created by {chatroom.host.username} at {chatroom.host.address} with UUID {chatroom.host.uuid}"
     )
@@ -97,7 +98,16 @@ def chat():
         print("received {} bytes from {}".format(len(data), address))
         username, token, message = utils.process_message_from_udp(data)
         print(f"username: {username}, token: {token}, message: {message}, now: {now}")
-        udp_sock.sendto(utils.build_server_message_for_udp(username, message), address)
+        chatroom = utils.check_token(token, address, chatrooms)
+        if chatroom is None:
+            print(f"Invalid token: {token}. Message ignored.")
+            udp_sock.sendto(
+                utils.build_server_message_for_udp("System", "Invalid Token"), address
+            )
+        for user in chatroom.users:
+            udp_sock.sendto(
+                utils.build_server_message_for_udp(username, message), user.address
+            )
 
 
 class ChatRoom:

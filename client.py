@@ -37,7 +37,7 @@ def message_output():
 def message_input():
     while True:
         data, _server = udp_sock.recvfrom(4096)
-        username, token, message = utils.process_message_from_udp(data)
+        username, _token, message = utils.process_message_from_udp(data)
         print(f"{username}: {message}")
         # print(token)
 
