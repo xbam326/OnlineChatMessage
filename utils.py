@@ -1,4 +1,5 @@
 from enum import IntEnum
+import uuid
 
 
 class OPERATION_CODE(IntEnum):
@@ -20,11 +21,70 @@ STATUS_CODES = {
 }
 
 
-def process_data(data):
+class User:
+    def __init__(self, username, address):
+        self.username = username
+        self.address = address
+        self.uuid = str(uuid.uuid4())
+
+
+def build_client_message_for_udp(username, token, message):
+    # UTF-8エンコード
+    username_bytes = username.encode("utf-8")
+    token_bytes = token.encode("utf-8")
+    message_bytes = message.encode("utf-8")
+
+    # 制限チェック
+    if len(username_bytes) > 2**8:
+        raise ValueError("Username too long (max 28 bytes)")
+    if len(token_bytes) > 2**8:
+        raise ValueError("Token too long (max 28 bytes)")
+    if len(message_bytes) > 2**29:
+        raise ValueError("Message too long (max 229 bytes)")
+
+    # ヘッダー部分
+    usernamelen = len(username_bytes).to_bytes(1, "big")
+    tokenlen = len(token_bytes).to_bytes(1, "big")
+
+    # ヘッダー(2 bytes) + ボディ
+    header = usernamelen + tokenlen
+    body = username_bytes + token_bytes + message_bytes
+
+    return header + body
+
+
+def build_server_message_for_udp(username, message):
+    # UTF-8エンコード
+    username_bytes = username.encode("utf-8")
+    token_bytes = "".encode("utf-8")
+    message_bytes = message.encode("utf-8")
+
+    # 制限チェック
+    if len(username_bytes) > 2**8:
+        raise ValueError("Username too long (max 28 bytes)")
+    if len(token_bytes) > 2**8:
+        raise ValueError("Token too long (max 28 bytes)")
+    if len(message_bytes) > 2**29:
+        raise ValueError("Message too long (max 229 bytes)")
+
+    # ヘッダー部分
+    usernamelen = len(username_bytes).to_bytes(1, "big")
+    tokenlen = len(token_bytes).to_bytes(1, "big")
+
+    # ヘッダー(2 bytes) + ボディ
+    header = usernamelen + tokenlen
+    body = username_bytes + token_bytes + message_bytes
+
+    return header + body
+
+
+def process_message_from_udp(data):
     usermelon = data[0]
-    username = data[1 : usermelon + 1].decode("utf-8")
-    message = data[usermelon + 1 :].decode("utf-8")
-    return username, message
+    tokenmelon = data[1]
+    username = data[2 : usermelon + 2].decode("utf-8")
+    token = data[usermelon + 2 : usermelon + tokenmelon + 2].decode("utf-8")
+    message = data[usermelon + tokenmelon + 2 :].decode("utf-8")
+    return username, token, message
 
 
 def build_message_for_tcrp(roomname, operation, state, payload):
