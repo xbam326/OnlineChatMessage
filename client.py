@@ -1,10 +1,11 @@
+import sys
 import socket
 import random
 import threading
 
 import utils
 
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 address = input("Type in the server's address to connect to: ")
 if address == '':
@@ -33,26 +34,52 @@ def message_input():
         print('What is your message?')
 
 def main():
-    # 空の文字列も0.0.0.0として使用できます。
-    sock.bind((address,port))
-    print('cliemt start on {}:{}'.format(address,port))
+    try:
+        # 接続後、サーバとクライアントが相互に読み書きができるようになります
+        sock.connect((address, server_port))
+        print('connecting to {} port {}'.format(address, server_port))
+    except socket.error as err:
+        print(err)
+        sys.exit(1)
+
     username = input("What is your username: ")
     print(username)
-    print("What is your message?")
-    try:
-        message_output_thread = threading.Thread(target=message_output, args=(username,), daemon=True)
-        message_output_thread.start()
-        # message_input_thread = threading.Thread(target=message_input, daemon=True)
-        # message_input_thread.start()
-        message_input()
+    roomname = input("What is your roomname: ")
+    print(roomname)
+    sock.send(utils.build_message_for_tcrp(roomname, utils.OPERATION_CODE.CREATE, utils.STATE_CODE.REQUEST, username))
+    data = sock.recv(4096)
+    print('received {} bytes from {}'.format(len(data), address))
+    roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
+    print(f"roomname: {roomname}, operation: {operation}, state: {state}, payload: {payload}")
+    if payload == utils.STATUS_CODES["ACCEPTED"]:
+        print(f"Creating room: {roomname}")
+    else:
+        print(f"Failed to accept room: {roomname}")
+        sys.exit(1)
+    data = sock.recv(4096)
+    roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
+    print(f"roomname: {roomname}, operation: {operation}, state: {state}, payload: {payload}")
+    if state == utils.STATE_CODE.CREATED:
+        token = payload
+        print(f"Room created successfully with token: {token}")
+    else:
+        print(f"Failed to create room: {roomname}")
+        sys.exit(1)
+    # print(f"roomname: {roomname}, operation: {operation}, state: {state}, payload: {payload}")
+    # try:
+    #     message_output_thread = threading.Thread(target=message_output, args=(username,), daemon=True)
+    #     message_output_thread.start()
+    #     # message_input_thread = threading.Thread(target=message_input, daemon=True)
+    #     # message_input_thread.start()
+    #     message_input()
 
-    except Exception as e:
-        print('An error occurred: {}'.format(e))
+    # except Exception as e:
+    #     print('An error occurred: {}'.format(e))
 
 
-    finally:
-        print('closing socket')
-        sock.close()
+    # finally:
+    #     print('closing socket')
+    #     sock.close()
 
 if __name__ == "__main__":
     main()
