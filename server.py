@@ -97,10 +97,7 @@ def chat():
         print("received {} bytes from {}".format(len(data), address))
         username, token, message = utils.process_message_from_udp(data)
         print(f"username: {username}, token: {token}, message: {message}, now: {now}")
-        sent = udp_sock.sendto(
-            utils.build_server_message_for_udp(username, message), address
-        )
-        print("sent {} bytes to {}".format(sent, address))
+        udp_sock.sendto(utils.build_server_message_for_udp(username, message), address)
 
 
 class ChatRoom:

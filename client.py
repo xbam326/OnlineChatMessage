@@ -2,6 +2,7 @@ import sys
 import socket
 import random
 import threading
+import time
 
 import utils
 
@@ -21,15 +22,15 @@ port = random.randint(9003, 9100)
 
 # メッセージを送信
 def message_output():
-    # while True:
-    print("Type your message: ")
-    message = input()
-    print(username, token)
-    sent = udp_sock.sendto(
-        utils.build_client_message_for_udp(username, token, message),
-        (address, udp_server_port),
-    )
-    print("Send {} bytes".format(sent))
+    while True:
+        message = input("Type your message:")
+        # print(username, token)
+        udp_sock.sendto(
+            utils.build_client_message_for_udp(username, token, message),
+            (address, udp_server_port),
+        )
+        # print("Send {} bytes".format(sent))
+        time.sleep(0.1)
 
 
 # # 応答を受信
@@ -38,7 +39,7 @@ def message_input():
         data, _server = udp_sock.recvfrom(4096)
         username, token, message = utils.process_message_from_udp(data)
         print(f"{username}: {message}")
-        print(token)
+        # print(token)
 
 
 def create_chatroom():
@@ -86,7 +87,9 @@ def create_chatroom():
 
 def main():
     create_chatroom()
-    message_output()
+    # message_output()
+    message_output_thread = threading.Thread(target=message_output, daemon=True)
+    message_output_thread.start()
     message_input()
 
     # print(f"roomname: {roomname}, operation: {operation}, state: {state}, payload: {payload}")
