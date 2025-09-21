@@ -1,32 +1,96 @@
 from enum import IntEnum
+import uuid
+
 
 class OPERATION_CODE(IntEnum):
     CREATE = 0
     JOIN = 1
+
 
 class STATE_CODE(IntEnum):
     REQUEST = 0
     ACCEPTED = 1
     CREATED = 2
 
+
 STATUS_CODES = {
     "CREATED": "201",
     "ACCEPTED": "202",
     "ROOM_EXISTS": "409",
-    "SERVER_FULL": "503"
+    "SERVER_FULL": "503",
 }
 
 
-def process_data(data):
-  usermelon = data[0]
-  username = data[1:usermelon+1].decode('utf-8')
-  message = data[usermelon+1:].decode('utf-8')
-  return username, message
+class User:
+    def __init__(self, username, address):
+        self.username = username
+        self.address = address
+        self.uuid = str(uuid.uuid4())
 
-def build_message_for_tcrp(roomname,operation,state,payload):
-# UTF-8エンコード
-    roomname_bytes = roomname.encode('utf-8')
-    payload_bytes = payload.encode('utf-8')
+
+def build_client_message_for_udp(username, token, message):
+    # UTF-8エンコード
+    username_bytes = username.encode("utf-8")
+    token_bytes = token.encode("utf-8")
+    message_bytes = message.encode("utf-8")
+
+    # 制限チェック
+    if len(username_bytes) > 2**8:
+        raise ValueError("Username too long (max 28 bytes)")
+    if len(token_bytes) > 2**8:
+        raise ValueError("Token too long (max 28 bytes)")
+    if len(message_bytes) > 2**29:
+        raise ValueError("Message too long (max 229 bytes)")
+
+    # ヘッダー部分
+    usernamelen = len(username_bytes).to_bytes(1, "big")
+    tokenlen = len(token_bytes).to_bytes(1, "big")
+
+    # ヘッダー(2 bytes) + ボディ
+    header = usernamelen + tokenlen
+    body = username_bytes + token_bytes + message_bytes
+
+    return header + body
+
+
+def build_server_message_for_udp(username, message):
+    # UTF-8エンコード
+    username_bytes = username.encode("utf-8")
+    token_bytes = "".encode("utf-8")
+    message_bytes = message.encode("utf-8")
+
+    # 制限チェック
+    if len(username_bytes) > 2**8:
+        raise ValueError("Username too long (max 28 bytes)")
+    if len(token_bytes) > 2**8:
+        raise ValueError("Token too long (max 28 bytes)")
+    if len(message_bytes) > 2**29:
+        raise ValueError("Message too long (max 229 bytes)")
+
+    # ヘッダー部分
+    usernamelen = len(username_bytes).to_bytes(1, "big")
+    tokenlen = len(token_bytes).to_bytes(1, "big")
+
+    # ヘッダー(2 bytes) + ボディ
+    header = usernamelen + tokenlen
+    body = username_bytes + token_bytes + message_bytes
+
+    return header + body
+
+
+def process_message_from_udp(data):
+    usermelon = data[0]
+    tokenmelon = data[1]
+    username = data[2 : usermelon + 2].decode("utf-8")
+    token = data[usermelon + 2 : usermelon + tokenmelon + 2].decode("utf-8")
+    message = data[usermelon + tokenmelon + 2 :].decode("utf-8")
+    return username, token, message
+
+
+def build_message_for_tcrp(roomname, operation, state, payload):
+    # UTF-8エンコード
+    roomname_bytes = roomname.encode("utf-8")
+    payload_bytes = payload.encode("utf-8")
 
     # 制限チェック
     if len(roomname_bytes) > 2**8:
@@ -35,10 +99,10 @@ def build_message_for_tcrp(roomname,operation,state,payload):
         raise ValueError("Payload too long (max 229 bytes)")
 
     # ヘッダー部分
-    roomnamelen = len(roomname_bytes).to_bytes(1, 'big')
-    op = operation.to_bytes(1, 'big')
-    st = state.to_bytes(1, 'big')
-    payloadlen = len(payload_bytes).to_bytes(29, 'big')
+    roomnamelen = len(roomname_bytes).to_bytes(1, "big")
+    op = operation.to_bytes(1, "big")
+    st = state.to_bytes(1, "big")
+    payloadlen = len(payload_bytes).to_bytes(29, "big")
 
     # ヘッダー(32 bytes) + ボディ
     header = roomnamelen + op + st + payloadlen
@@ -46,15 +110,16 @@ def build_message_for_tcrp(roomname,operation,state,payload):
 
     return header + body
 
+
 def parse_message_from_tcrp(data):
     if len(data) < 32:
         raise ValueError("Data too short for TCRP header")
-    
+
     # ヘッダーの読み取り
-    roomnamelen = int.from_bytes(data[0:1], 'big')
-    operation = int.from_bytes(data[1:2], 'big')
-    state = int.from_bytes(data[2:3], 'big')
-    payloadlen = int.from_bytes(data[3:32], 'big')
+    roomnamelen = int.from_bytes(data[0:1], "big")
+    operation = int.from_bytes(data[1:2], "big")
+    state = int.from_bytes(data[2:3], "big")
+    payloadlen = int.from_bytes(data[3:32], "big")
 
     # ボディの取り出し位置
     body = data[32:]
@@ -64,10 +129,10 @@ def parse_message_from_tcrp(data):
 
     # ルーム名
     roomname_bytes = body[:roomnamelen]
-    roomname = roomname_bytes.decode('utf-8', errors='replace')
+    roomname = roomname_bytes.decode("utf-8", errors="replace")
 
     # ペイロード
-    payload_bytes = body[roomnamelen:roomnamelen + payloadlen]
-    payload = payload_bytes.decode('utf-8', errors='replace')
+    payload_bytes = body[roomnamelen : roomnamelen + payloadlen]
+    payload = payload_bytes.decode("utf-8", errors="replace")
 
     return roomname, operation, state, payload
