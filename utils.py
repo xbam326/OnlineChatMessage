@@ -136,3 +136,11 @@ def parse_message_from_tcrp(data):
     payload = payload_bytes.decode("utf-8", errors="replace")
 
     return roomname, operation, state, payload
+
+
+def check_token(token, address, chatrooms):
+    for chatroom in chatrooms:
+        for user in chatroom.users:
+            if user.uuid == token:
+                user.address = address
+                return chatroom
