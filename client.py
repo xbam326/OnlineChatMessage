@@ -22,14 +22,13 @@ port = random.randint(9003, 9100)
 
 # メッセージを送信
 def message_output():
+    print("Type your message:")
     while True:
-        message = input("Type your message:")
-        # print(username, token)
+        message = input()
         udp_sock.sendto(
             utils.build_client_message_for_udp(username, token, message),
             (address, udp_server_port),
         )
-        # print("Send {} bytes".format(sent))
         time.sleep(0.1)
 
 
@@ -39,10 +38,9 @@ def message_input():
         data, _server = udp_sock.recvfrom(4096)
         username, _token, message = utils.process_message_from_udp(data)
         print(f"{username}: {message}")
-        # print(token)
 
 
-def create_chatroom():
+def select_operation():
     global username, token
     try:
         # 接続後、サーバとクライアントが相互に読み書きができるようになります
@@ -51,14 +49,22 @@ def create_chatroom():
     except socket.error as err:
         print(err)
         sys.exit(1)
+    operation = input("What operation do you want to do (create:1/join:2): ")
+    return operation
 
+
+def create_chatroom():
+    global username, token
     username = input("What is your username: ")
     print(username)
     roomname = input("What is your roomname: ")
     print(roomname)
     tcp_sock.send(
         utils.build_message_for_tcrp(
-            roomname, utils.OPERATION_CODE.CREATE, utils.STATE_CODE.REQUEST, username
+            roomname,
+            utils.OPERATION_CODES["CREATE"],
+            utils.STATE_CODE.REQUEST,
+            username,
         )
     )
     data = tcp_sock.recv(4096)
@@ -85,27 +91,66 @@ def create_chatroom():
         sys.exit(1)
 
 
+def join_chatroom():
+    global username, token
+    username = input("What is your username: ")
+    print(username)
+    roomname = input("What is your roomname to join: ")
+    print(roomname, utils.OPERATION_CODES["JOIN"], utils.STATE_CODE.REQUEST, username)
+    print(
+        utils.build_message_for_tcrp(
+            roomname,
+            utils.OPERATION_CODES["JOIN"],
+            utils.STATE_CODE.REQUEST,
+            username,
+        )
+    )
+    tcp_sock.send(
+        utils.build_message_for_tcrp(
+            roomname,
+            utils.OPERATION_CODES["JOIN"],
+            utils.STATE_CODE.REQUEST,
+            username,
+        )
+    )
+    data = tcp_sock.recv(4096)
+    print("received {} bytes from {}".format(len(data), address))
+    roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
+    print(
+        f"roomname: {roomname}, operation: {operation}, state: {state}, payload: {payload}"
+    )
+    if payload == utils.STATUS_CODES["ACCEPTED"]:
+        print(f"Joining room: {roomname}")
+    else:
+        print(f"Failed to accept room: {roomname}")
+        sys.exit(1)
+    data = tcp_sock.recv(4096)
+    roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
+    print(
+        f"roomname: {roomname}, operation: {operation}, state: {state}, payload: {payload}"
+    )
+    if state == utils.STATE_CODE.SUCCESS:
+        token = payload
+        print(f"Joining Room is successfully with token: {token}")
+    else:
+        print(f"Failed to join room: {roomname}")
+        sys.exit(1)
+
+
 def main():
-    create_chatroom()
-    # message_output()
+    operation = select_operation()
+    if operation not in ["1", "2"]:
+        print("Invalid operation")
+        sys.exit(1)
+    if operation == str(utils.OPERATION_CODES["CREATE"]):
+        print("operation", operation)
+        create_chatroom()
+    if operation == str(utils.OPERATION_CODES["JOIN"]):
+        print("operation", operation)
+        join_chatroom()
     message_output_thread = threading.Thread(target=message_output, daemon=True)
     message_output_thread.start()
     message_input()
-
-    # print(f"roomname: {roomname}, operation: {operation}, state: {state}, payload: {payload}")
-    # try:
-    #     message_output_thread = threading.Thread(target=message_output, args=(username,), daemon=True)
-    #     message_output_thread.start()
-    #     # message_input_thread = threading.Thread(target=message_input, daemon=True)
-    #     # message_input_thread.start()
-    #     message_input()
-
-    # except Exception as e:
-    #     print('An error occurred: {}'.format(e))
-
-    # finally:
-    #     print('closing socket')
-    #     sock.close()
 
 
 if __name__ == "__main__":

@@ -2,21 +2,24 @@ from enum import IntEnum
 import uuid
 
 
-class OPERATION_CODE(IntEnum):
-    CREATE = 0
-    JOIN = 1
+OPERATION_CODES = {"CREATE": 1, "JOIN": 2}
 
 
 class STATE_CODE(IntEnum):
     REQUEST = 0
     ACCEPTED = 1
     CREATED = 2
+    SUCCESS = 3
+    DENIED = 4
 
 
 STATUS_CODES = {
+    "SUCCESS": "200",
     "CREATED": "201",
     "ACCEPTED": "202",
+    "ROOM_NOT_FOUND": "404",
     "ROOM_EXISTS": "409",
+    "USERNAME_EXISTS": "430",
     "SERVER_FULL": "503",
 }
 
@@ -113,6 +116,15 @@ def build_message_for_tcrp(roomname, operation, state, payload):
 
 def parse_message_from_tcrp(data):
     if len(data) < 32:
+        roomnamelen = int.from_bytes(data[0:1], "big")
+        print(f"roomnamelen: {roomnamelen}")
+        operation = int.from_bytes(data[1:2], "big")
+        print(f"operation: {operation}")
+        state = int.from_bytes(data[2:3], "big")
+        print(f"state: {state}")
+        payloadlen = int.from_bytes(data[3:32], "big")
+        print(f"payloadlen: {payloadlen}")
+
         raise ValueError("Data too short for TCRP header")
 
     # ヘッダーの読み取り
@@ -144,3 +156,23 @@ def check_token(token, address, chatrooms):
             if user.uuid == token:
                 user.address = address
                 return chatroom
+
+
+def find_chatroom(roomname, chatrooms):
+    for chatroom in chatrooms:
+        if chatroom.roomname == roomname:
+            return chatroom
+    return None
+
+
+def is_exists_username_in_chatroom(username, chatroom):
+    for user in chatroom.users:
+        if user.username == username:
+            return True
+    return False
+
+
+def add_user_to_chatroom(chatroom, username, address):
+    new_user = User(username, address)
+    chatroom.users.append(new_user)
+    return new_user
