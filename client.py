@@ -20,9 +20,8 @@ udp_server_port = 9002
 port = random.randint(9003, 9100)
 
 
-# メッセージを送信
-def message_output():
-    print("Type your message:")
+def send_messages():
+    print("Ready to send messages. Type your message:")
     while True:
         message = input()
         udp_sock.sendto(
@@ -32,33 +31,30 @@ def message_output():
         time.sleep(0.1)
 
 
-# # 応答を受信
-def message_input():
+def receive_messages():
     while True:
-        data, _server = udp_sock.recvfrom(4096)
-        username, _token, message = utils.process_message_from_udp(data)
+        data, _ = udp_sock.recvfrom(4096)
+        username, _, message = utils.process_message_from_udp(data)
         print(f"{username}: {message}")
 
 
-def select_operation():
+def connect_and_select_operation():
     global username, token
     try:
         # 接続後、サーバとクライアントが相互に読み書きができるようになります
         tcp_sock.connect((address, tcp_server_port))
-        print("connecting to {} port {}".format(address, tcp_server_port))
+        print("Connected to server {} on TCP port {}".format(address, tcp_server_port))
     except socket.error as err:
         print(err)
         sys.exit(1)
-    operation = input("What operation do you want to do (create:1/join:2): ")
+    operation = input("Select operation - Create room (1) / Join room (2): ")
     return operation
 
 
 def create_chatroom():
     global username, token
-    username = input("What is your username: ")
-    print(username)
-    roomname = input("What is your roomname: ")
-    print(roomname)
+    username = input("Enter your username: ")
+    roomname = input("Enter room name to create: ")
     tcp_sock.send(
         utils.build_message_for_tcrp(
             roomname,
@@ -68,11 +64,7 @@ def create_chatroom():
         )
     )
     data = tcp_sock.recv(4096)
-    print("received {} bytes from {}".format(len(data), address))
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
-    print(
-        f"roomname: {roomname}, operation: {operation}, state: {state}, payload: {payload}"
-    )
     if payload == utils.STATUS_CODES["ACCEPTED"]:
         print(f"Creating room: {roomname}")
     else:
@@ -80,12 +72,9 @@ def create_chatroom():
         sys.exit(1)
     data = tcp_sock.recv(4096)
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
-    print(
-        f"roomname: {roomname}, operation: {operation}, state: {state}, payload: {payload}"
-    )
     if state == utils.STATE_CODE.CREATED:
         token = payload
-        print(f"Room created successfully with token: {token}")
+        print(f"Room '{roomname}' created successfully!")
     else:
         print(f"Failed to create room: {roomname}")
         sys.exit(1)
@@ -93,18 +82,8 @@ def create_chatroom():
 
 def join_chatroom():
     global username, token
-    username = input("What is your username: ")
-    print(username)
-    roomname = input("What is your roomname to join: ")
-    print(roomname, utils.OPERATION_CODES["JOIN"], utils.STATE_CODE.REQUEST, username)
-    print(
-        utils.build_message_for_tcrp(
-            roomname,
-            utils.OPERATION_CODES["JOIN"],
-            utils.STATE_CODE.REQUEST,
-            username,
-        )
-    )
+    username = input("Enter your username: ")
+    roomname = input("Enter room name to join: ")
     tcp_sock.send(
         utils.build_message_for_tcrp(
             roomname,
@@ -114,11 +93,7 @@ def join_chatroom():
         )
     )
     data = tcp_sock.recv(4096)
-    print("received {} bytes from {}".format(len(data), address))
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
-    print(
-        f"roomname: {roomname}, operation: {operation}, state: {state}, payload: {payload}"
-    )
     if payload == utils.STATUS_CODES["ACCEPTED"]:
         print(f"Joining room: {roomname}")
     else:
@@ -126,31 +101,26 @@ def join_chatroom():
         sys.exit(1)
     data = tcp_sock.recv(4096)
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
-    print(
-        f"roomname: {roomname}, operation: {operation}, state: {state}, payload: {payload}"
-    )
     if state == utils.STATE_CODE.SUCCESS:
         token = payload
-        print(f"Joining Room is successfully with token: {token}")
+        print(f"Successfully joined room '{roomname}'!")
     else:
         print(f"Failed to join room: {roomname}")
         sys.exit(1)
 
 
 def main():
-    operation = select_operation()
+    operation = connect_and_select_operation()
     if operation not in ["1", "2"]:
         print("Invalid operation")
         sys.exit(1)
     if operation == str(utils.OPERATION_CODES["CREATE"]):
-        print("operation", operation)
         create_chatroom()
     if operation == str(utils.OPERATION_CODES["JOIN"]):
-        print("operation", operation)
         join_chatroom()
-    message_output_thread = threading.Thread(target=message_output, daemon=True)
-    message_output_thread.start()
-    message_input()
+    send_thread = threading.Thread(target=send_messages, daemon=True)
+    send_thread.start()
+    receive_messages()
 
 
 if __name__ == "__main__":
