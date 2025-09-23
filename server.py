@@ -21,8 +21,8 @@ tcp_sock.bind((server_address, tcp_server_port))
 tcp_sock.listen(1)
 udp_sock.bind((server_address, udp_server_port))
 
-print("Starting TCP server on port {}".format(tcp_server_port))
-print("Starting UDP server on port {}".format(udp_server_port))
+print(f"Starting TCP server on port {tcp_server_port}")
+print(f"Starting UDP server on port {udp_server_port}")
 
 chatrooms = []
 
@@ -35,13 +35,12 @@ def main():
 
 def handle_tcp_connections():
     while True:
-        global tcp_sock
         connection, client_address = tcp_sock.accept()
         print("Connection:", connection)
         print("Client address:", client_address)
         data = connection.recv(4096)
 
-        print("Received {} bytes from {}".format(len(data), client_address))
+        print(f"Received {len(data)} bytes from {client_address}")
         roomname, operation, state, username = utils.parse_message_from_tcrp(data)
         print(
             f"Room: {roomname}, Operation: {operation}, State: {state}, Username: {username}"
@@ -169,7 +168,7 @@ def leave_chatroom(connection, roomname, operation, username):
         for user in chatroom.users:
             udp_sock.sendto(
                 utils.build_server_message_for_udp(
-                    "System", "Host has leaved. This chatroom is removed."
+                    "System", "Host has left. This chatroom is removed."
                 ),
                 user.address,
             )
@@ -182,7 +181,7 @@ def handle_udp_messages():
         print("\nWaiting for UDP message...")
         data, address = udp_sock.recvfrom(4096)
         now = datetime.datetime.now()
-        print("Received {} bytes from {}".format(len(data), address))
+        print(f"Received {len(data)} bytes from {address}")
         username, token, message = utils.process_message_from_udp(data)
         print(f"Username: {username}, Token: {token}, Message: {message}, Time: {now}")
         chatroom = utils.check_token(token, address, chatrooms)

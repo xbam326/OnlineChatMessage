@@ -31,7 +31,7 @@ class User:
         self.uuid = str(uuid.uuid4())
 
 
-def build_client_message_for_udp(username, token, message):
+def _build_udp_message(username, token, message):
     # UTF-8エンコード
     username_bytes = username.encode("utf-8")
     token_bytes = token.encode("utf-8")
@@ -56,29 +56,12 @@ def build_client_message_for_udp(username, token, message):
     return header + body
 
 
+def build_client_message_for_udp(username, token, message):
+    return _build_udp_message(username, token, message)
+
+
 def build_server_message_for_udp(username, message):
-    # UTF-8エンコード
-    username_bytes = username.encode("utf-8")
-    token_bytes = "".encode("utf-8")
-    message_bytes = message.encode("utf-8")
-
-    # 制限チェック
-    if len(username_bytes) > 2**8:
-        raise ValueError("Username too long (max 28 bytes)")
-    if len(token_bytes) > 2**8:
-        raise ValueError("Token too long (max 28 bytes)")
-    if len(message_bytes) > 2**29:
-        raise ValueError("Message too long (max 229 bytes)")
-
-    # ヘッダー部分
-    usernamelen = len(username_bytes).to_bytes(1, "big")
-    tokenlen = len(token_bytes).to_bytes(1, "big")
-
-    # ヘッダー(2 bytes) + ボディ
-    header = usernamelen + tokenlen
-    body = username_bytes + token_bytes + message_bytes
-
-    return header + body
+    return _build_udp_message(username, "", message)
 
 
 def process_message_from_udp(data):
@@ -156,6 +139,7 @@ def check_token(token, address, chatrooms):
             if user.uuid == token:
                 user.address = address
                 return chatroom
+    return None
 
 
 def find_chatroom(roomname, chatrooms):
@@ -166,10 +150,7 @@ def find_chatroom(roomname, chatrooms):
 
 
 def is_exists_username_in_chatroom(username, chatroom):
-    for user in chatroom.users:
-        if user.username == username:
-            return True
-    return False
+    return any(user.username == username for user in chatroom.users)
 
 
 def add_user_to_chatroom(chatroom, username):

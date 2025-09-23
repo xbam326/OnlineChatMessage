@@ -45,18 +45,16 @@ def connect_tcp():
         # 接続後、サーバとクライアントが相互に読み書きができるようになります
         tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         tcp_sock.connect((address, tcp_server_port))
-        print("Connected to server {} on TCP port {}".format(address, tcp_server_port))
+        print(f"Connected to server {address} on TCP port {tcp_server_port}")
     except socket.error as err:
         print(err)
         sys.exit(1)
-    return
 
 
 def disconnect_tcp():
     global tcp_sock
     tcp_sock.close()
     print("Disconnected from server.")
-    return
 
 
 def select_operation():
