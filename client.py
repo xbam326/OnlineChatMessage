@@ -43,13 +43,19 @@ def receive_messages():
 
 def connect_tcp():
     global username, token, tcp_sock
-    try:
+
+    def attempt_connection():
+        global tcp_sock
         # 接続後、サーバとクライアントが相互に読み書きができるようになります
         tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        tcp_sock.settimeout(10)  # 10秒のタイムアウトを設定
         tcp_sock.connect((address, tcp_server_port))
         print(f"Connected to server {address} on TCP port {tcp_server_port}")
-    except socket.error as err:
-        print(err)
+        return True
+
+    result = utils.retry_with_exponential_backoff(attempt_connection)
+    if result is None:
+        print("Failed to connect to server after multiple attempts.")
         sys.exit(1)
 
 
@@ -68,7 +74,10 @@ def create_chatroom():
     global roomname, username, token, tcp_sock
     username = input("Enter your username: ")
     roomname = input("Enter room name to create: ")
-    tcp_sock.send(
+
+    # 送信リトライ
+    result = utils.send_with_retry(
+        tcp_sock,
         utils.build_message_for_tcrp(
             roomname,
             utils.OPERATION_CODES["CREATE"],
@@ -76,14 +85,29 @@ def create_chatroom():
             username,
         )
     )
-    data = tcp_sock.recv(4096)
+    if result is None:
+        print("Failed to send create room request")
+        sys.exit(1)
+
+    # 最初の応答受信リトライ
+    data = utils.recv_with_retry(tcp_sock)
+    if data is None:
+        print("Failed to receive response from server")
+        sys.exit(1)
+
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
     if payload == utils.STATUS_CODES["ACCEPTED"]:
         print(f"Creating room: {roomname}")
     else:
         print(f"Failed to accept room: {roomname}")
         sys.exit(1)
-    data = tcp_sock.recv(4096)
+
+    # 2番目の応答受信リトライ
+    data = utils.recv_with_retry(tcp_sock)
+    if data is None:
+        print("Failed to receive creation confirmation from server")
+        sys.exit(1)
+
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
     if state == utils.STATE_CODE.CREATED:
         token = payload
@@ -97,7 +121,10 @@ def join_chatroom():
     global roomname, username, token
     username = input("Enter your username: ")
     roomname = input("Enter room name to join: ")
-    tcp_sock.send(
+
+    # 送信リトライ
+    result = utils.send_with_retry(
+        tcp_sock,
         utils.build_message_for_tcrp(
             roomname,
             utils.OPERATION_CODES["JOIN"],
@@ -105,14 +132,29 @@ def join_chatroom():
             username,
         )
     )
-    data = tcp_sock.recv(4096)
+    if result is None:
+        print("Failed to send join room request")
+        sys.exit(1)
+
+    # 最初の応答受信リトライ
+    data = utils.recv_with_retry(tcp_sock)
+    if data is None:
+        print("Failed to receive response from server")
+        sys.exit(1)
+
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
     if payload == utils.STATUS_CODES["ACCEPTED"]:
         print(f"Joining room: {roomname}")
     else:
         print(f"Failed to accept room: {roomname}")
         sys.exit(1)
-    data = tcp_sock.recv(4096)
+
+    # 2番目の応答受信リトライ
+    data = utils.recv_with_retry(tcp_sock)
+    if data is None:
+        print("Failed to receive join confirmation from server")
+        sys.exit(1)
+
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
     if state == utils.STATE_CODE.SUCCESS:
         token = payload
@@ -124,7 +166,10 @@ def join_chatroom():
 
 def exit():
     global tcp_sock, udp_sock, roomname, username
-    tcp_sock.send(
+
+    # 送信リトライ
+    result = utils.send_with_retry(
+        tcp_sock,
         utils.build_message_for_tcrp(
             roomname,
             utils.OPERATION_CODES["LEAVE"],
@@ -132,14 +177,29 @@ def exit():
             username,
         )
     )
-    data = tcp_sock.recv(4096)
+    if result is None:
+        print("Failed to send leave room request")
+        sys.exit(1)
+
+    # 最初の応答受信リトライ
+    data = utils.recv_with_retry(tcp_sock)
+    if data is None:
+        print("Failed to receive response from server")
+        sys.exit(1)
+
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
     if payload == utils.STATUS_CODES["ACCEPTED"]:
         print(f"Leaving room: {roomname}")
     else:
         print(f"Failed to leave room: {roomname}")
         sys.exit(1)
-    data = tcp_sock.recv(4096)
+
+    # 2番目の応答受信リトライ
+    data = utils.recv_with_retry(tcp_sock)
+    if data is None:
+        print("Failed to receive leave confirmation from server")
+        sys.exit(1)
+
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
     if state == utils.STATE_CODE.SUCCESS:
         print(f"Successfully leaving room '{roomname}'!")

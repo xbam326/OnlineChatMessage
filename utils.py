@@ -1,6 +1,8 @@
 from enum import IntEnum
 import uuid
 import datetime
+import socket
+import time
 
 
 OPERATION_CODES = {"CREATE": 1, "JOIN": 2, "LEAVE": 3}
@@ -23,6 +25,65 @@ STATUS_CODES = {
     "USERNAME_EXISTS": "430",
     "SERVER_FULL": "503",
 }
+
+
+def retry_with_exponential_backoff(
+    func, max_retries=3, initial_delay=1, max_delay=32, backoff_factor=2
+):
+    """指数バックオフでリトライを行う再帰関数
+
+    Args:
+        func: 実行する関数（引数なしでcallable）
+        max_retries: 最大リトライ回数
+        initial_delay: 初期待機時間（秒）
+        max_delay: 最大待機時間（秒）
+        backoff_factor: バックオフ係数
+
+    Returns:
+        成功した場合は関数の戻り値、失敗した場合はNone
+    """
+
+    def attempt(retry_count, delay):
+        try:
+            result = func()
+            return result
+        except (socket.error, socket.timeout, ConnectionError) as e:
+            if retry_count >= max_retries:
+                print(f"Maximum retries ({max_retries}) exceeded. Error: {e}")
+                return None
+
+            print(
+                f"Connection failed, retrying in {delay} seconds... (attempt {retry_count + 1}/{max_retries})"
+            )
+            time.sleep(delay)
+
+            # 次のdelayを計算（最大値を超えないように）
+            next_delay = min(delay * backoff_factor, max_delay)
+            return attempt(retry_count + 1, next_delay)
+
+    return attempt(0, initial_delay)
+
+
+def send_with_retry(sock, data, max_retries=3, initial_delay=0.5):
+    """ソケット送信をリトライ付きで実行"""
+
+    def send_data():
+        sock.send(data)
+        return True
+
+    return retry_with_exponential_backoff(send_data, max_retries, initial_delay)
+
+
+def recv_with_retry(sock, buffer_size=4096, max_retries=3, initial_delay=0.5):
+    """ソケット受信をリトライ付きで実行"""
+
+    def recv_data():
+        data = sock.recv(buffer_size)
+        if not data:
+            raise ConnectionError("No data received from server")
+        return data
+
+    return retry_with_exponential_backoff(recv_data, max_retries, initial_delay)
 
 
 class User:
