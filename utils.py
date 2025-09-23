@@ -1,5 +1,6 @@
 from enum import IntEnum
 import uuid
+import datetime
 
 
 OPERATION_CODES = {"CREATE": 1, "JOIN": 2, "LEAVE": 3}
@@ -29,6 +30,7 @@ class User:
         self.username = username
         self.address = None
         self.uuid = str(uuid.uuid4())
+        self.last_message_time = datetime.datetime.now()
 
 
 def _build_udp_message(username, token, message):
@@ -138,6 +140,7 @@ def check_token(token, address, chatrooms):
         for user in chatroom.users:
             if user.uuid == token:
                 user.address = address
+                user.last_message_time = datetime.datetime.now()
                 return chatroom
     return None
 

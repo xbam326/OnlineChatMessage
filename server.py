@@ -1,8 +1,13 @@
 import socket
 import datetime
 import threading
+import time
 
 import utils
+
+INACTIVE_TIMEOUT = 60 * 10  # 10分
+CHECK_INTERVAL = 60  # 1分
+
 
 # AF_INETを使用し、TCPソケットを作成
 tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -30,6 +35,12 @@ chatrooms = []
 def main():
     tcp_handler_thread = threading.Thread(target=handle_tcp_connections)
     tcp_handler_thread.start()
+
+    # 非アクティブユーザー監視スレッドを開始
+    monitor_thread = threading.Thread(target=monitor_inactive_users, daemon=True)
+    monitor_thread.start()
+    print("Started inactive user monitoring thread")
+
     handle_udp_messages()
 
 
@@ -72,7 +83,7 @@ def create_chatroom(connection, roomname, operation, username):
     chatroom = ChatRoom(roomname, host)
     chatrooms.append(chatroom)
     print(
-        f"Chat room '{chatroom.roomname}' created by {chatroom.host.username} at {chatroom.host.address} with UUID {chatroom.host.uuid}"
+        f"Chat room '{chatroom.roomname}' created by {chatroom.host.username} with UUID {chatroom.host.uuid}"
     )
     connection.send(
         utils.build_message_for_tcrp(
@@ -196,6 +207,67 @@ def handle_udp_messages():
             udp_sock.sendto(
                 utils.build_server_message_for_udp(username, message), user.address
             )
+
+
+def monitor_inactive_users():
+    """非アクティブユーザーを監視して削除する"""
+
+    while True:
+        time.sleep(CHECK_INTERVAL)
+        now = datetime.datetime.now()
+
+        for chatroom in chatrooms[:]:  # リストのコピーを作成して反復
+            users_to_remove = []
+
+            for user in chatroom.users:
+                if user.last_message_time:
+                    time_diff = (now - user.last_message_time).total_seconds()
+
+                    if time_diff > INACTIVE_TIMEOUT:
+                        users_to_remove.append(user)
+                        print(
+                            f"User '{user.username}' has been inactive for {time_diff:.0f} seconds in room '{chatroom.roomname}'"
+                        )
+
+            # 非アクティブユーザーを削除
+            for user in users_to_remove:
+                # 削除前に通知を送信
+                if user.address:
+                    try:
+                        udp_sock.sendto(
+                            utils.build_server_message_for_udp(
+                                "System",
+                                "You have been removed from the chatroom due to inactivity.",
+                            ),
+                            user.address,
+                        )
+                    except Exception as e:
+                        print(f"Failed to notify user '{user.username}': {e}")
+
+                # ユーザーを削除
+                chatroom.users.remove(user)
+                print(
+                    f"Removed inactive user '{user.username}' from room '{chatroom.roomname}'"
+                )
+
+                # ホストが削除された場合、チャットルームも削除
+                if user.username == chatroom.host.username:
+                    for remaining_user in chatroom.users:
+                        if remaining_user.address:
+                            try:
+                                udp_sock.sendto(
+                                    utils.build_server_message_for_udp(
+                                        "System",
+                                        "Host has been removed due to inactivity. This chatroom is now closed.",
+                                    ),
+                                    remaining_user.address,
+                                )
+                            except:
+                                pass
+                    chatrooms.remove(chatroom)
+                    print(
+                        f"Removed chatroom '{chatroom.roomname}' as host was inactive"
+                    )
 
 
 class ChatRoom:

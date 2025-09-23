@@ -25,6 +25,8 @@ def send_messages():
     print("Ready to send messages. Type your message:")
     while True:
         message = input()
+        # 入力行をクリア
+        print("\033[1A\033[K", end="")
         udp_sock.sendto(
             utils.build_client_message_for_udp(username, token, message),
             (address, udp_server_port),
