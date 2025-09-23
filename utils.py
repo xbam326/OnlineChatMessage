@@ -1,30 +1,10 @@
-from enum import IntEnum
-import uuid
-import datetime
 import socket
 import time
+from codes import OPERATION_CODES, STATE_CODES, STATUS_CODES
 
-
-OPERATION_CODES = {"CREATE": 1, "JOIN": 2, "LEAVE": 3}
-
-
-class STATE_CODE(IntEnum):
-    REQUEST = 0
-    ACCEPTED = 1
-    CREATED = 2
-    SUCCESS = 3
-    DENIED = 4
-
-
-STATUS_CODES = {
-    "SUCCESS": "200",
-    "CREATED": "201",
-    "ACCEPTED": "202",
-    "ROOM_NOT_FOUND": "404",
-    "ROOM_EXISTS": "409",
-    "USERNAME_EXISTS": "430",
-    "SERVER_FULL": "503",
-}
+# ===================
+# リトライ関連の関数
+# ===================
 
 
 def retry_with_exponential_backoff(
@@ -42,7 +22,6 @@ def retry_with_exponential_backoff(
     Returns:
         成功した場合は関数の戻り値、失敗した場合はNone
     """
-
     def attempt(retry_count, delay):
         try:
             result = func()
@@ -66,7 +45,6 @@ def retry_with_exponential_backoff(
 
 def send_with_retry(sock, data, max_retries=3, initial_delay=0.5):
     """ソケット送信をリトライ付きで実行"""
-
     def send_data():
         sock.send(data)
         return True
@@ -76,7 +54,6 @@ def send_with_retry(sock, data, max_retries=3, initial_delay=0.5):
 
 def recv_with_retry(sock, buffer_size=4096, max_retries=3, initial_delay=0.5):
     """ソケット受信をリトライ付きで実行"""
-
     def recv_data():
         data = sock.recv(buffer_size)
         if not data:
@@ -86,15 +63,13 @@ def recv_with_retry(sock, buffer_size=4096, max_retries=3, initial_delay=0.5):
     return retry_with_exponential_backoff(recv_data, max_retries, initial_delay)
 
 
-class User:
-    def __init__(self, username):
-        self.username = username
-        self.address = None
-        self.uuid = str(uuid.uuid4())
-        self.last_message_time = datetime.datetime.now()
+# ===================
+# UDPメッセージ関連の関数
+# ===================
 
 
 def _build_udp_message(username, token, message):
+    """UDPメッセージの共通構築関数"""
     # UTF-8エンコード
     username_bytes = username.encode("utf-8")
     token_bytes = token.encode("utf-8")
@@ -120,14 +95,17 @@ def _build_udp_message(username, token, message):
 
 
 def build_client_message_for_udp(username, token, message):
+    """クライアント用UDPメッセージ構築"""
     return _build_udp_message(username, token, message)
 
 
 def build_server_message_for_udp(username, message):
+    """サーバー用UDPメッセージ構築"""
     return _build_udp_message(username, "", message)
 
 
 def process_message_from_udp(data):
+    """UDPメッセージ解析"""
     usermelon = data[0]
     tokenmelon = data[1]
     username = data[2 : usermelon + 2].decode("utf-8")
@@ -136,7 +114,13 @@ def process_message_from_udp(data):
     return username, token, message
 
 
+# ===================
+# TCRPメッセージ関連の関数
+# ===================
+
+
 def build_message_for_tcrp(roomname, operation, state, payload):
+    """TCRPメッセージ構築"""
     # UTF-8エンコード
     roomname_bytes = roomname.encode("utf-8")
     payload_bytes = payload.encode("utf-8")
@@ -161,6 +145,7 @@ def build_message_for_tcrp(roomname, operation, state, payload):
 
 
 def parse_message_from_tcrp(data):
+    """TCRPメッセージ解析"""
     if len(data) < 32:
         roomnamelen = int.from_bytes(data[0:1], "big")
         print(f"roomnamelen: {roomnamelen}")
@@ -196,28 +181,24 @@ def parse_message_from_tcrp(data):
     return roomname, operation, state, payload
 
 
+# ===================
+# チャットルーム関連のヘルパー関数
+# ===================
+
+
 def check_token(token, address, chatrooms):
+    """トークンを確認し、該当するチャットルームを取得"""
     for chatroom in chatrooms:
-        for user in chatroom.users:
-            if user.uuid == token:
-                user.address = address
-                user.last_message_time = datetime.datetime.now()
-                return chatroom
+        if chatroom.update_user_activity(token, address):
+            return chatroom
     return None
 
 
 def find_chatroom(roomname, chatrooms):
+    """チャットルーム名でチャットルームを検索"""
     for chatroom in chatrooms:
         if chatroom.roomname == roomname:
             return chatroom
     return None
 
 
-def is_exists_username_in_chatroom(username, chatroom):
-    return any(user.username == username for user in chatroom.users)
-
-
-def add_user_to_chatroom(chatroom, username):
-    new_user = User(username)
-    chatroom.users.append(new_user)
-    return new_user

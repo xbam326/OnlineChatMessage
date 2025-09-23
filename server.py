@@ -4,24 +4,25 @@ import threading
 import time
 
 import utils
+from models import User, Chatroom
+from codes import OPERATION_CODES, STATE_CODES, STATUS_CODES
 
+# 設定値
 INACTIVE_TIMEOUT = 60 * 10  # 10分
 CHECK_INTERVAL = 60  # 1分
 
+# グローバル変数
+chatrooms = []
 
-# AF_INETを使用し、TCPソケットを作成
+# ソケット設定
 tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-# AF_INETを使用し、UDPソケットを作成
 udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 server_address = "localhost"
-
 tcp_server_port = 9001
 udp_server_port = 9002
 
 tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
 tcp_sock.bind((server_address, tcp_server_port))
 tcp_sock.listen(1)
 udp_sock.bind((server_address, udp_server_port))
@@ -29,10 +30,9 @@ udp_sock.bind((server_address, udp_server_port))
 print(f"Starting TCP server on port {tcp_server_port}")
 print(f"Starting UDP server on port {udp_server_port}")
 
-chatrooms = []
-
 
 def main():
+    """メイン関数"""
     tcp_handler_thread = threading.Thread(target=handle_tcp_connections)
     tcp_handler_thread.start()
 
@@ -45,6 +45,7 @@ def main():
 
 
 def handle_tcp_connections():
+    """TCP接続をハンドリング"""
     while True:
         connection, client_address = tcp_sock.accept()
         print("Connection:", connection)
@@ -60,134 +61,27 @@ def handle_tcp_connections():
             utils.build_message_for_tcrp(
                 roomname,
                 operation,
-                utils.STATE_CODE.ACCEPTED,
-                utils.STATUS_CODES["ACCEPTED"],
+                STATE_CODES["ACCEPTED"],
+                STATUS_CODES["ACCEPTED"],
             )
         )
         handle_operation(connection, roomname, operation, username)
 
 
 def handle_operation(connection, roomname, operation, username):
-    if operation == utils.OPERATION_CODES["CREATE"]:
+    """操作タイプに基づいてリクエストを処理"""
+    if operation == OPERATION_CODES["CREATE"]:
         create_chatroom(connection, roomname, operation, username)
-    elif operation == utils.OPERATION_CODES["JOIN"]:
+    elif operation == OPERATION_CODES["JOIN"]:
         join_chatroom(connection, roomname, operation, username)
-    elif operation == utils.OPERATION_CODES["LEAVE"]:
+    elif operation == OPERATION_CODES["LEAVE"]:
         print("Leave operation")
         print("Connection:", connection, roomname, operation, username)
         leave_chatroom(connection, roomname, operation, username)
 
 
-def create_chatroom(connection, roomname, operation, username):
-    host = utils.User(username)
-    chatroom = ChatRoom(roomname, host)
-    chatrooms.append(chatroom)
-    print(
-        f"Chat room '{chatroom.roomname}' created by {chatroom.host.username} with UUID {chatroom.host.uuid}"
-    )
-    connection.send(
-        utils.build_message_for_tcrp(
-            roomname, operation, utils.STATE_CODE.CREATED, chatroom.host.uuid
-        )
-    )
-
-
-def join_chatroom(connection, roomname, operation, username):
-    chatroom = utils.find_chatroom(roomname, chatrooms)
-    print("Chatroom name:", chatroom.roomname)
-    print("Chatroom users:", chatroom.users)
-    if chatroom is None:
-        print(f"Chat room '{roomname}' does not exist. Join request denied.")
-        connection.send(
-            utils.build_message_for_tcrp(
-                roomname,
-                operation,
-                utils.STATE_CODE.DENIED,
-                utils.STATUS_CODES["ROOM_NOT_FOUND"],
-            )
-        )
-        return
-    if utils.is_exists_username_in_chatroom(username, chatroom):
-        print(
-            f"Username '{username}' already exists in chat room '{chatroom.roomname}'. Join request denied."
-        )
-        connection.send(
-            utils.build_message_for_tcrp(
-                roomname,
-                operation,
-                utils.STATE_CODE.DENIED,
-                utils.STATUS_CODES["USERNAME_EXISTS"],
-            )
-        )
-        return
-    new_user = utils.add_user_to_chatroom(chatroom, username)
-    print(
-        f"User '{new_user.username}' joined chat room '{chatroom.roomname}' with UUID {new_user.uuid}"
-    )
-    connection.send(
-        utils.build_message_for_tcrp(
-            roomname,
-            operation,
-            utils.STATE_CODE.SUCCESS,
-            new_user.uuid,
-        )
-    )
-
-
-def leave_chatroom(connection, roomname, operation, username):
-    chatroom = utils.find_chatroom(roomname, chatrooms)
-    if chatroom is None:
-        print(f"Chat room '{roomname}' does not exist. Leave request denied.")
-        connection.send(
-            utils.build_message_for_tcrp(
-                roomname,
-                operation,
-                utils.STATE_CODE.DENIED,
-                utils.STATUS_CODES["ROOM_NOT_FOUND"],
-            )
-        )
-        return
-    user_to_remove = None
-    for user in chatroom.users:
-        if user.username == username:
-            user_to_remove = user
-            break
-    if user_to_remove is None:
-        print(
-            f"Username '{username}' not found in chat room '{chatroom.roomname}'. Leave request denied."
-        )
-        connection.send(
-            utils.build_message_for_tcrp(
-                roomname,
-                operation,
-                utils.STATE_CODE.DENIED,
-                utils.STATUS_CODES["USERNAME_NOT_FOUND"],
-            )
-        )
-        return
-    chatroom.users.remove(user_to_remove)
-    print(f"User '{user_to_remove.username}' left chat room '{chatroom.roomname}'")
-    connection.send(
-        utils.build_message_for_tcrp(
-            roomname,
-            operation,
-            utils.STATE_CODE.SUCCESS,
-            utils.STATUS_CODES["SUCCESS"],
-        )
-    )
-    if chatroom.host.username == user_to_remove.username:
-        for user in chatroom.users:
-            udp_sock.sendto(
-                utils.build_server_message_for_udp(
-                    "System", "Host has left. This chatroom is removed."
-                ),
-                user.address,
-            )
-        chatrooms.remove(chatroom)
-        print(f"Chat room '{chatroom.roomname}' deleted as it became empty.")
-
-
 def handle_udp_messages():
+    """UDPメッセージをハンドリング"""
     while True:
         print("\nWaiting for UDP message...")
         data, address = udp_sock.recvfrom(4096)
@@ -209,9 +103,120 @@ def handle_udp_messages():
             )
 
 
+def create_chatroom(connection, roomname, operation, username):
+    """チャットルームを作成"""
+    host = User(username)
+    chatroom = Chatroom(roomname, host)
+    chatrooms.append(chatroom)
+    print(
+        f"Chat room '{chatroom.roomname}' created by {chatroom.host.username} with UUID {chatroom.host.uuid}"
+    )
+    connection.send(
+        utils.build_message_for_tcrp(
+            roomname, operation, STATE_CODES["CREATED"], chatroom.host.uuid
+        )
+    )
+
+
+def join_chatroom(connection, roomname, operation, username):
+    """チャットルームに参加"""
+    chatroom = utils.find_chatroom(roomname, chatrooms)
+    if chatroom is None:
+        print(f"Chat room '{roomname}' does not exist. Join request denied.")
+        connection.send(
+            utils.build_message_for_tcrp(
+                roomname,
+                operation,
+                STATE_CODES["DENIED"],
+                STATUS_CODES["ROOM_NOT_FOUND"],
+            )
+        )
+        return
+    print("Chatroom name:", chatroom.roomname)
+    print("Chatroom users:", chatroom.users)
+    if chatroom.is_username_exists(username):
+        print(
+            f"Username '{username}' already exists in chat room '{chatroom.roomname}'. Join request denied."
+        )
+        connection.send(
+            utils.build_message_for_tcrp(
+                roomname,
+                operation,
+                STATE_CODES["DENIED"],
+                STATUS_CODES["USERNAME_EXISTS"],
+            )
+        )
+        return
+    new_user = chatroom.add_user(username)
+    print(
+        f"User '{new_user.username}' joined chat room '{chatroom.roomname}' with UUID {new_user.uuid}"
+    )
+    connection.send(
+        utils.build_message_for_tcrp(
+            roomname,
+            operation,
+            STATE_CODES["SUCCESS"],
+            new_user.uuid,
+        )
+    )
+
+
+def leave_chatroom(connection, roomname, operation, username):
+    """チャットルームから退出"""
+    chatroom = utils.find_chatroom(roomname, chatrooms)
+    if chatroom is None:
+        print(f"Chat room '{roomname}' does not exist. Leave request denied.")
+        connection.send(
+            utils.build_message_for_tcrp(
+                roomname,
+                operation,
+                STATE_CODES["DENIED"],
+                STATUS_CODES["ROOM_NOT_FOUND"],
+            )
+        )
+        return
+    user_to_remove = None
+    for user in chatroom.users:
+        if user.username == username:
+            user_to_remove = user
+            break
+    if user_to_remove is None:
+        print(
+            f"Username '{username}' not found in chat room '{chatroom.roomname}'. Leave request denied."
+        )
+        connection.send(
+            utils.build_message_for_tcrp(
+                roomname,
+                operation,
+                STATE_CODES["DENIED"],
+                STATUS_CODES["USERNAME_NOT_FOUND"],
+            )
+        )
+        return
+    chatroom.users.remove(user_to_remove)
+    print(f"User '{user_to_remove.username}' left chat room '{chatroom.roomname}'")
+    connection.send(
+        utils.build_message_for_tcrp(
+            roomname,
+            operation,
+            STATE_CODES["SUCCESS"],
+            STATUS_CODES["SUCCESS"],
+        )
+    )
+    if chatroom.host.username == user_to_remove.username:
+        for user in chatroom.users:
+            udp_sock.sendto(
+                utils.build_server_message_for_udp(
+                    "System", "Host has left. This chatroom is removed."
+                ),
+                user.address,
+            )
+        chatrooms.remove(chatroom)
+        print(f"Chat room '{chatroom.roomname}' deleted as it became empty.")
+
+
 def monitor_inactive_users():
     """非アクティブユーザーを監視して削除する"""
-
     while True:
         time.sleep(CHECK_INTERVAL)
         now = datetime.datetime.now()
@@ -270,11 +275,6 @@ def monitor_inactive_users():
                     )
 
 
-class ChatRoom:
-    def __init__(self, roomname, host):
-        self.roomname = roomname
-        self.host = host
-        self.users = [host]
 
 
 if __name__ == "__main__":

@@ -5,14 +5,16 @@ import threading
 import time
 
 import utils
+from codes import OPERATION_CODES, STATE_CODES, STATUS_CODES
 
+# グローバル変数
 tcp_sock = None
 udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 token = None
 username = None
 roomname = None
 
-
+# サーバー設定
 address = input("Type in the server's address to connect to: ")
 if address == "":
     address = "localhost"
@@ -21,30 +23,37 @@ udp_server_port = 9002
 port = random.randint(9003, 9100)
 
 
-def send_messages():
-    print("Ready to send messages. Type your message:")
-    while True:
-        message = input()
-        # 入力行をクリア
-        print("\033[1A\033[K", end="")
-        # 空白メッセージをチェック
-        if message.strip() == "":
-            continue
-        udp_sock.sendto(
-            utils.build_client_message_for_udp(username, token, message),
-            (address, udp_server_port),
-        )
-        time.sleep(0.1)
+def main():
+    """メイン関数"""
+    connect_tcp()
+    operation = select_operation()
+    if operation not in ["1", "2"]:
+        print("Invalid operation")
+        sys.exit(1)
+    if operation == str(OPERATION_CODES["CREATE"]):
+        create_chatroom()
+    if operation == str(OPERATION_CODES["JOIN"]):
+        join_chatroom()
+    disconnect_tcp()
+    try:
+        send_thread = threading.Thread(target=send_messages, daemon=True)
+        send_thread.start()
+        receive_messages()
+    except KeyboardInterrupt:
+        connect_tcp()
+        exit()
+        tcp_sock.close()
+        udp_sock.close()
 
 
-def receive_messages():
-    while True:
-        data, _ = udp_sock.recvfrom(4096)
-        username, _, message = utils.process_message_from_udp(data)
-        print(f"{username}: {message}")
+def select_operation():
+    """操作選択"""
+    operation = input("Select operation - Create room (1) / Join room (2): ")
+    return operation
 
 
 def connect_tcp():
+    """TCP接続"""
     global username, token, tcp_sock
 
     def attempt_connection():
@@ -63,17 +72,14 @@ def connect_tcp():
 
 
 def disconnect_tcp():
+    """TCP切断"""
     global tcp_sock
     tcp_sock.close()
     print("Disconnected from server.")
 
 
-def select_operation():
-    operation = input("Select operation - Create room (1) / Join room (2): ")
-    return operation
-
-
 def create_chatroom():
+    """チャットルーム作成"""
     global roomname, username, token, tcp_sock
     # ユーザー名の入力検証
     while True:
@@ -94,8 +100,8 @@ def create_chatroom():
         tcp_sock,
         utils.build_message_for_tcrp(
             roomname,
-            utils.OPERATION_CODES["CREATE"],
-            utils.STATE_CODE.REQUEST,
+            OPERATION_CODES["CREATE"],
+            STATE_CODES["REQUEST"],
             username,
         ),
     )
@@ -110,7 +116,7 @@ def create_chatroom():
         sys.exit(1)
 
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
-    if payload == utils.STATUS_CODES["ACCEPTED"]:
+    if payload == STATUS_CODES["ACCEPTED"]:
         print(f"Creating room: {roomname}")
     else:
         print(f"Failed to accept room: {roomname}")
@@ -123,7 +129,7 @@ def create_chatroom():
         sys.exit(1)
 
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
-    if state == utils.STATE_CODE.CREATED:
+    if state == STATE_CODES["CREATED"]:
         token = payload
         print(f"Room '{roomname}' created successfully!")
     else:
@@ -132,6 +138,7 @@ def create_chatroom():
 
 
 def join_chatroom():
+    """チャットルーム参加"""
     global roomname, username, token
     # ユーザー名の入力検証
     while True:
@@ -152,8 +159,8 @@ def join_chatroom():
         tcp_sock,
         utils.build_message_for_tcrp(
             roomname,
-            utils.OPERATION_CODES["JOIN"],
-            utils.STATE_CODE.REQUEST,
+            OPERATION_CODES["JOIN"],
+            STATE_CODES["REQUEST"],
             username,
         ),
     )
@@ -168,7 +175,7 @@ def join_chatroom():
         sys.exit(1)
 
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
-    if payload == utils.STATUS_CODES["ACCEPTED"]:
+    if payload == STATUS_CODES["ACCEPTED"]:
         print(f"Joining room: {roomname}")
     else:
         print(f"Failed to accept room: {roomname}")
@@ -181,7 +188,7 @@ def join_chatroom():
         sys.exit(1)
 
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
-    if state == utils.STATE_CODE.SUCCESS:
+    if state == STATE_CODES["SUCCESS"]:
         token = payload
         print(f"Successfully joined room '{roomname}'!")
     else:
@@ -190,6 +197,7 @@ def join_chatroom():
 
 
 def exit():
+    """チャットルーム退出"""
     global tcp_sock, udp_sock, roomname, username
 
     # 送信リトライ
@@ -197,8 +205,8 @@ def exit():
         tcp_sock,
         utils.build_message_for_tcrp(
             roomname,
-            utils.OPERATION_CODES["LEAVE"],
-            utils.STATE_CODE.REQUEST,
+            OPERATION_CODES["LEAVE"],
+            STATE_CODES["REQUEST"],
             username,
         ),
     )
@@ -213,7 +221,7 @@ def exit():
         sys.exit(1)
 
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
-    if payload == utils.STATUS_CODES["ACCEPTED"]:
+    if payload == STATUS_CODES["ACCEPTED"]:
         print(f"Leaving room: {roomname}")
     else:
         print(f"Failed to leave room: {roomname}")
@@ -226,7 +234,7 @@ def exit():
         sys.exit(1)
 
     roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
-    if state == utils.STATE_CODE.SUCCESS:
+    if state == STATE_CODES["SUCCESS"]:
         print(f"Successfully leaving room '{roomname}'!")
     else:
         print(f"Failed to leave room: {roomname}")
@@ -234,26 +242,30 @@ def exit():
     print("\nDisconnected from server.")
 
 
-def main():
-    connect_tcp()
-    operation = select_operation()
-    if operation not in ["1", "2"]:
-        print("Invalid operation")
-        sys.exit(1)
-    if operation == str(utils.OPERATION_CODES["CREATE"]):
-        create_chatroom()
-    if operation == str(utils.OPERATION_CODES["JOIN"]):
-        join_chatroom()
-    disconnect_tcp()
-    try:
-        send_thread = threading.Thread(target=send_messages, daemon=True)
-        send_thread.start()
-        receive_messages()
-    except KeyboardInterrupt:
-        connect_tcp()
-        exit()
-        tcp_sock.close()
-        udp_sock.close()
+def send_messages():
+    """メッセージ送信"""
+    print("Ready to send messages. Type your message:")
+    while True:
+        message = input()
+        # 入力行をクリア
+        print("\033[1A\033[K", end="")
+        # 空白メッセージをチェック
+        if message.strip() == "":
+            continue
+        udp_sock.sendto(
+            utils.build_client_message_for_udp(username, token, message),
+            (address, udp_server_port),
+        )
+        time.sleep(0.1)
+
+
+def receive_messages():
+    """メッセージ受信"""
+    while True:
+        data, _ = udp_sock.recvfrom(4096)
+        username, _, message = utils.process_message_from_udp(data)
+        print(f"{username}: {message}")
+
 
 
 if __name__ == "__main__":
