@@ -1,58 +1,260 @@
+import sys
 import socket
 import random
 import threading
+import time
 
 import utils
 
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+tcp_sock = None
+udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+token = None
+username = None
+roomname = None
+
 
 address = input("Type in the server's address to connect to: ")
-if address == '':
-  address = 'localhost'
-server_port = 9001
-port = random.randint(9002,9100)
+if address == "":
+    address = "localhost"
+tcp_server_port = 9001
+udp_server_port = 9002
+port = random.randint(9003, 9100)
 
-def create_message(username: str, message: str) -> bytes:
-    username_bytes = username.encode('utf-8')
-    usernamelen = len(username_bytes).to_bytes(1, 'big')
-    return usernamelen + username_bytes + message.encode('utf-8')
 
-# メッセージを送信
-def message_output(username):
+def send_messages():
+    print("Ready to send messages. Type your message:")
     while True:
         message = input()
-        sent = sock.sendto(create_message(username, message), (address, server_port))
-        print('Send {} bytes'.format(sent))
+        # 入力行をクリア
+        print("\033[1A\033[K", end="")
+        # 空白メッセージをチェック
+        if message.strip() == "":
+            continue
+        udp_sock.sendto(
+            utils.build_client_message_for_udp(username, token, message),
+            (address, udp_server_port),
+        )
+        time.sleep(0.1)
 
-# 応答を受信
-def message_input():
+
+def receive_messages():
     while True:
-        data, _server = sock.recvfrom(4096)
-        username, message = utils.process_data(data)
+        data, _ = udp_sock.recvfrom(4096)
+        username, _, message = utils.process_message_from_udp(data)
         print(f"{username}: {message}")
-        print('What is your message?')
+
+
+def connect_tcp():
+    global username, token, tcp_sock
+
+    def attempt_connection():
+        global tcp_sock
+        # 接続後、サーバとクライアントが相互に読み書きができるようになります
+        tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        tcp_sock.settimeout(10)  # 10秒のタイムアウトを設定
+        tcp_sock.connect((address, tcp_server_port))
+        print(f"Connected to server {address} on TCP port {tcp_server_port}")
+        return True
+
+    result = utils.retry_with_exponential_backoff(attempt_connection)
+    if result is None:
+        print("Failed to connect to server after multiple attempts.")
+        sys.exit(1)
+
+
+def disconnect_tcp():
+    global tcp_sock
+    tcp_sock.close()
+    print("Disconnected from server.")
+
+
+def select_operation():
+    operation = input("Select operation - Create room (1) / Join room (2): ")
+    return operation
+
+
+def create_chatroom():
+    global roomname, username, token, tcp_sock
+    # ユーザー名の入力検証
+    while True:
+        username = input("Enter your username: ")
+        if username.strip() != "":
+            break
+        print("Username cannot be empty. Please enter a valid username.")
+
+    # ルーム名の入力検証
+    while True:
+        roomname = input("Enter room name to create: ")
+        if roomname.strip() != "":
+            break
+        print("Room name cannot be empty. Please enter a valid room name.")
+
+    # 送信リトライ
+    result = utils.send_with_retry(
+        tcp_sock,
+        utils.build_message_for_tcrp(
+            roomname,
+            utils.OPERATION_CODES["CREATE"],
+            utils.STATE_CODE.REQUEST,
+            username,
+        ),
+    )
+    if result is None:
+        print("Failed to send create room request")
+        sys.exit(1)
+
+    # 最初の応答受信リトライ
+    data = utils.recv_with_retry(tcp_sock)
+    if data is None:
+        print("Failed to receive response from server")
+        sys.exit(1)
+
+    roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
+    if payload == utils.STATUS_CODES["ACCEPTED"]:
+        print(f"Creating room: {roomname}")
+    else:
+        print(f"Failed to accept room: {roomname}")
+        sys.exit(1)
+
+    # 2番目の応答受信リトライ
+    data = utils.recv_with_retry(tcp_sock)
+    if data is None:
+        print("Failed to receive creation confirmation from server")
+        sys.exit(1)
+
+    roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
+    if state == utils.STATE_CODE.CREATED:
+        token = payload
+        print(f"Room '{roomname}' created successfully!")
+    else:
+        print(f"Failed to create room: {roomname}")
+        sys.exit(1)
+
+
+def join_chatroom():
+    global roomname, username, token
+    # ユーザー名の入力検証
+    while True:
+        username = input("Enter your username: ")
+        if username.strip() != "":
+            break
+        print("Username cannot be empty. Please enter a valid username.")
+
+    # ルーム名の入力検証
+    while True:
+        roomname = input("Enter room name to join: ")
+        if roomname.strip() != "":
+            break
+        print("Room name cannot be empty. Please enter a valid room name.")
+
+    # 送信リトライ
+    result = utils.send_with_retry(
+        tcp_sock,
+        utils.build_message_for_tcrp(
+            roomname,
+            utils.OPERATION_CODES["JOIN"],
+            utils.STATE_CODE.REQUEST,
+            username,
+        ),
+    )
+    if result is None:
+        print("Failed to send join room request")
+        sys.exit(1)
+
+    # 最初の応答受信リトライ
+    data = utils.recv_with_retry(tcp_sock)
+    if data is None:
+        print("Failed to receive response from server")
+        sys.exit(1)
+
+    roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
+    if payload == utils.STATUS_CODES["ACCEPTED"]:
+        print(f"Joining room: {roomname}")
+    else:
+        print(f"Failed to accept room: {roomname}")
+        sys.exit(1)
+
+    # 2番目の応答受信リトライ
+    data = utils.recv_with_retry(tcp_sock)
+    if data is None:
+        print("Failed to receive join confirmation from server")
+        sys.exit(1)
+
+    roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
+    if state == utils.STATE_CODE.SUCCESS:
+        token = payload
+        print(f"Successfully joined room '{roomname}'!")
+    else:
+        print(f"Failed to join room: {roomname}")
+        sys.exit(1)
+
+
+def exit():
+    global tcp_sock, udp_sock, roomname, username
+
+    # 送信リトライ
+    result = utils.send_with_retry(
+        tcp_sock,
+        utils.build_message_for_tcrp(
+            roomname,
+            utils.OPERATION_CODES["LEAVE"],
+            utils.STATE_CODE.REQUEST,
+            username,
+        ),
+    )
+    if result is None:
+        print("Failed to send leave room request")
+        sys.exit(1)
+
+    # 最初の応答受信リトライ
+    data = utils.recv_with_retry(tcp_sock)
+    if data is None:
+        print("Failed to receive response from server")
+        sys.exit(1)
+
+    roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
+    if payload == utils.STATUS_CODES["ACCEPTED"]:
+        print(f"Leaving room: {roomname}")
+    else:
+        print(f"Failed to leave room: {roomname}")
+        sys.exit(1)
+
+    # 2番目の応答受信リトライ
+    data = utils.recv_with_retry(tcp_sock)
+    if data is None:
+        print("Failed to receive leave confirmation from server")
+        sys.exit(1)
+
+    roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
+    if state == utils.STATE_CODE.SUCCESS:
+        print(f"Successfully leaving room '{roomname}'!")
+    else:
+        print(f"Failed to leave room: {roomname}")
+
+    print("\nDisconnected from server.")
+
 
 def main():
-    # 空の文字列も0.0.0.0として使用できます。
-    sock.bind((address,port))
-    print('cliemt start on {}:{}'.format(address,port))
-    username = input("What is your username: ")
-    print(username)
-    print("What is your message?")
+    connect_tcp()
+    operation = select_operation()
+    if operation not in ["1", "2"]:
+        print("Invalid operation")
+        sys.exit(1)
+    if operation == str(utils.OPERATION_CODES["CREATE"]):
+        create_chatroom()
+    if operation == str(utils.OPERATION_CODES["JOIN"]):
+        join_chatroom()
+    disconnect_tcp()
     try:
-        message_output_thread = threading.Thread(target=message_output, args=(username,), daemon=True)
-        message_output_thread.start()
-        # message_input_thread = threading.Thread(target=message_input, daemon=True)
-        # message_input_thread.start()
-        message_input()
+        send_thread = threading.Thread(target=send_messages, daemon=True)
+        send_thread.start()
+        receive_messages()
+    except KeyboardInterrupt:
+        connect_tcp()
+        exit()
+        tcp_sock.close()
+        udp_sock.close()
 
-    except Exception as e:
-        print('An error occurred: {}'.format(e))
-
-
-    finally:
-        print('closing socket')
-        sock.close()
 
 if __name__ == "__main__":
     main()
