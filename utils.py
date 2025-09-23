@@ -2,7 +2,7 @@ from enum import IntEnum
 import uuid
 
 
-OPERATION_CODES = {"CREATE": 1, "JOIN": 2}
+OPERATION_CODES = {"CREATE": 1, "JOIN": 2, "LEAVE": 3}
 
 
 class STATE_CODE(IntEnum):
@@ -25,9 +25,9 @@ STATUS_CODES = {
 
 
 class User:
-    def __init__(self, username, address):
+    def __init__(self, username):
         self.username = username
-        self.address = address
+        self.address = None
         self.uuid = str(uuid.uuid4())
 
 
@@ -172,7 +172,7 @@ def is_exists_username_in_chatroom(username, chatroom):
     return False
 
 
-def add_user_to_chatroom(chatroom, username, address):
-    new_user = User(username, address)
+def add_user_to_chatroom(chatroom, username):
+    new_user = User(username)
     chatroom.users.append(new_user)
     return new_user

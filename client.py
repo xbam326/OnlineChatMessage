@@ -6,10 +6,11 @@ import time
 
 import utils
 
-tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+tcp_sock = None
 udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 token = None
 username = None
+roomname = None
 
 
 address = input("Type in the server's address to connect to: ")
@@ -38,21 +39,33 @@ def receive_messages():
         print(f"{username}: {message}")
 
 
-def connect_and_select_operation():
-    global username, token
+def connect_tcp():
+    global username, token, tcp_sock
     try:
         # 接続後、サーバとクライアントが相互に読み書きができるようになります
+        tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         tcp_sock.connect((address, tcp_server_port))
         print("Connected to server {} on TCP port {}".format(address, tcp_server_port))
     except socket.error as err:
         print(err)
         sys.exit(1)
+    return
+
+
+def disconnect_tcp():
+    global tcp_sock
+    tcp_sock.close()
+    print("Disconnected from server.")
+    return
+
+
+def select_operation():
     operation = input("Select operation - Create room (1) / Join room (2): ")
     return operation
 
 
 def create_chatroom():
-    global username, token
+    global roomname, username, token, tcp_sock
     username = input("Enter your username: ")
     roomname = input("Enter room name to create: ")
     tcp_sock.send(
@@ -81,7 +94,7 @@ def create_chatroom():
 
 
 def join_chatroom():
-    global username, token
+    global roomname, username, token
     username = input("Enter your username: ")
     roomname = input("Enter room name to join: ")
     tcp_sock.send(
@@ -109,8 +122,36 @@ def join_chatroom():
         sys.exit(1)
 
 
+def exit():
+    global tcp_sock, udp_sock, roomname, username
+    tcp_sock.send(
+        utils.build_message_for_tcrp(
+            roomname,
+            utils.OPERATION_CODES["LEAVE"],
+            utils.STATE_CODE.REQUEST,
+            username,
+        )
+    )
+    data = tcp_sock.recv(4096)
+    roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
+    if payload == utils.STATUS_CODES["ACCEPTED"]:
+        print(f"Leaving room: {roomname}")
+    else:
+        print(f"Failed to leave room: {roomname}")
+        sys.exit(1)
+    data = tcp_sock.recv(4096)
+    roomname, operation, state, payload = utils.parse_message_from_tcrp(data)
+    if state == utils.STATE_CODE.SUCCESS:
+        print(f"Successfully leaving room '{roomname}'!")
+    else:
+        print(f"Failed to leave room: {roomname}")
+
+    print("\nDisconnected from server.")
+
+
 def main():
-    operation = connect_and_select_operation()
+    connect_tcp()
+    operation = select_operation()
     if operation not in ["1", "2"]:
         print("Invalid operation")
         sys.exit(1)
@@ -118,9 +159,16 @@ def main():
         create_chatroom()
     if operation == str(utils.OPERATION_CODES["JOIN"]):
         join_chatroom()
-    send_thread = threading.Thread(target=send_messages, daemon=True)
-    send_thread.start()
-    receive_messages()
+    disconnect_tcp()
+    try:
+        send_thread = threading.Thread(target=send_messages, daemon=True)
+        send_thread.start()
+        receive_messages()
+    except KeyboardInterrupt:
+        connect_tcp()
+        exit()
+        tcp_sock.close()
+        udp_sock.close()
 
 
 if __name__ == "__main__":
