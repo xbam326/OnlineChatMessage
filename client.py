@@ -27,6 +27,9 @@ def send_messages():
         message = input()
         # 入力行をクリア
         print("\033[1A\033[K", end="")
+        # 空白メッセージをチェック
+        if message.strip() == "":
+            continue
         udp_sock.sendto(
             utils.build_client_message_for_udp(username, token, message),
             (address, udp_server_port),
@@ -72,8 +75,19 @@ def select_operation():
 
 def create_chatroom():
     global roomname, username, token, tcp_sock
-    username = input("Enter your username: ")
-    roomname = input("Enter room name to create: ")
+    # ユーザー名の入力検証
+    while True:
+        username = input("Enter your username: ")
+        if username.strip() != "":
+            break
+        print("Username cannot be empty. Please enter a valid username.")
+
+    # ルーム名の入力検証
+    while True:
+        roomname = input("Enter room name to create: ")
+        if roomname.strip() != "":
+            break
+        print("Room name cannot be empty. Please enter a valid room name.")
 
     # 送信リトライ
     result = utils.send_with_retry(
@@ -83,7 +97,7 @@ def create_chatroom():
             utils.OPERATION_CODES["CREATE"],
             utils.STATE_CODE.REQUEST,
             username,
-        )
+        ),
     )
     if result is None:
         print("Failed to send create room request")
@@ -119,8 +133,19 @@ def create_chatroom():
 
 def join_chatroom():
     global roomname, username, token
-    username = input("Enter your username: ")
-    roomname = input("Enter room name to join: ")
+    # ユーザー名の入力検証
+    while True:
+        username = input("Enter your username: ")
+        if username.strip() != "":
+            break
+        print("Username cannot be empty. Please enter a valid username.")
+
+    # ルーム名の入力検証
+    while True:
+        roomname = input("Enter room name to join: ")
+        if roomname.strip() != "":
+            break
+        print("Room name cannot be empty. Please enter a valid room name.")
 
     # 送信リトライ
     result = utils.send_with_retry(
@@ -130,7 +155,7 @@ def join_chatroom():
             utils.OPERATION_CODES["JOIN"],
             utils.STATE_CODE.REQUEST,
             username,
-        )
+        ),
     )
     if result is None:
         print("Failed to send join room request")
@@ -175,7 +200,7 @@ def exit():
             utils.OPERATION_CODES["LEAVE"],
             utils.STATE_CODE.REQUEST,
             username,
-        )
+        ),
     )
     if result is None:
         print("Failed to send leave room request")
